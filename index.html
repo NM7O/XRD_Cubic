@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cubic Crystal System XRD & Rocking Curve Visualizer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f7ff',
+                            100: '#e0effe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Three.js for 3D Lattice rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); }
+        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+        .dark ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+        .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); }
+        canvas { touch-action: none; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 h-full font-sans antialiased flex flex-col overflow-x-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-50 px-4 py-3 flex items-center justify-between shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-brand-600 to-cyan-500 p-2 rounded-xl text-white shadow-md">
+                <i class="fa-solid fa-cube text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-base sm:text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-brand-100 bg-clip-text text-transparent">
+                    立方晶系 (Cubic System) XRD & ロッキングカーブ シミュレータ
+                </h1>
+                <p class="text-xs text-slate-400">BCC / FCC / NaCl / Diamond / Zincblende (2θ: 10° - 120°)</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2">
+            <button id="resetParamsBtn" class="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition flex items-center gap-1.5">
+                <i class="fa-solid fa-rotate-left"></i> リセット
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+
+        <!-- Sidebar / Control Panel -->
+        <aside class="w-full lg:w-80 xl:w-96 bg-slate-900 border-r border-slate-800 flex flex-col h-auto lg:h-full overflow-y-auto shrink-0 z-10">
+            <div class="p-4 space-y-5">
+                
+                <!-- Section 1: Cubic Crystal Structure Selection -->
+                <div class="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 space-y-3">
+                    <div class="flex items-center justify-between text-xs font-bold text-slate-300 uppercase tracking-wider">
+                        <span><i class="fa-solid fa-cubes text-brand-500 mr-1.5"></i> 立方晶系 構造選択</span>
+                    </div>
+
+                    <div>
+                        <label for="structSelect" class="block text-xs font-medium text-slate-400 mb-1">結晶構造タイプ</label>
+                        <select id="structSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500 font-medium">
+                            <option value="BCC">BCC (体心立方構造)</option>
+                            <option value="FCC" selected>FCC (面心立方構造)</option>
+                            <option value="NaCl">NaCl (塩化ナトリウム型構造)</option>
+                            <option value="Diamond">Diamond (ダイヤモンド構造)</option>
+                            <option value="Zincblende">Zincblende (閃亜鉛鉱構造 / ZnS)</option>
+                        </select>
+                    </div>
+
+                    <!-- Zincblende Sub-Type Option -->
+                    <div id="zincblendeTypeWrapper" class="hidden space-y-1">
+                        <label for="zincblendeTypeSelect" class="block text-xs font-medium text-cyan-400">閃亜鉛鉱 元素構成 (消滅則)</label>
+                        <select id="zincblendeTypeSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500 font-medium">
+                            <option value="Compound" selected>2元素化合物 (例: ZnS, GaAs - f_A ≠ f_B)</option>
+                            <option value="Single">同種単体 (Diamond型同等: f_A = f_B)</option>
+                        </select>
+                    </div>
+
+                    <div class="p-2 bg-slate-900/80 rounded text-[11px] text-slate-400 flex items-start gap-1.5 border border-slate-800/80">
+                        <i class="fa-solid fa-circle-info text-brand-400 mt-0.5 shrink-0"></i>
+                        <span id="structDescription">面心立方格子。全指数(hkl)が全て偶数または全て奇数の場合に回折ピークが出現します。</span>
+                    </div>
+                </div>
+
+                <!-- Section 2: Physical Parameters Sliders -->
+                <div class="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 space-y-4">
+                    <div class="flex items-center justify-between text-xs font-bold text-slate-300 uppercase tracking-wider">
+                        <span><i class="fa-solid fa-sliders text-amber-400 mr-1.5"></i> 格子・照射パラメータ</span>
+                    </div>
+
+                    <!-- Lattice Constant a -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label for="latticeA" class="text-xs font-medium text-slate-400">格子定数 <span class="italic">a</span></label>
+                            <span class="text-xs font-mono font-bold text-amber-400" id="latticeAVal">4.05 Å</span>
+                        </div>
+                        <input type="range" id="latticeA" min="2.00" max="7.00" step="0.01" value="4.05" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500">
+                    </div>
+
+                    <!-- X-ray Wavelength -->
+                    <div>
+                        <label for="wavelengthSelect" class="block text-xs font-medium text-slate-400 mb-1">X線波長 (線源 λ)</label>
+                        <select id="wavelengthSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500 font-mono">
+                            <option value="1.5406" selected>Cu Kα (λ = 1.5406 Å)</option>
+                            <option value="0.7107">Mo Kα (λ = 0.7107 Å)</option>
+                            <option value="1.7890">Co Kα (λ = 1.7890 Å)</option>
+                            <option value="1.9360">Fe Kα (λ = 1.9360 Å)</option>
+                        </select>
+                    </div>
+
+                    <!-- Target hkl Plane Selection -->
+                    <div>
+                        <label for="hklSelect" class="block text-xs font-medium text-slate-400 mb-1">ロッキングカーブ対象面 (hkl)</label>
+                        <select id="hklSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500 font-mono">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+
+                    <!-- Mosaic Spread / Peak Broadening (FWHM) -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label for="fwhmSlider" class="text-xs font-medium text-slate-400">モザイク広がり / ピーク幅 <span class="italic">η</span> (FWHM)</label>
+                            <span class="text-xs font-mono font-bold text-cyan-400" id="fwhmVal">0.15°</span>
+                        </div>
+                        <input type="range" id="fwhmSlider" min="0.02" max="2.00" step="0.01" value="0.15" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                    </div>
+
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- Main View Area -->
+        <main class="flex-1 flex flex-col p-3 lg:p-5 space-y-4 overflow-y-auto bg-slate-950">
+            
+            <!-- Graphs Row -->
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                
+                <!-- Graph 1: Standard XRD Pattern -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col h-[380px]">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-chart-simple text-brand-400"></i> 立方晶 XRD パターン (2θ: 10° - 120°)
+                            </h2>
+                            <p class="text-[11px] text-slate-400">横軸: 回折角 2θ (deg) / 縦軸: 相対強度 (Relative Intensity)</p>
+                        </div>
+                        <span id="xrdPeakCount" class="px-2 py-0.5 text-[11px] bg-slate-800 border border-slate-700 text-slate-300 rounded-full font-mono">
+                            ピーク数: 0
+                        </span>
+                    </div>
+                    <div class="flex-1 relative w-full h-full min-h-0">
+                        <canvas id="xrdChartCanvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Graph 2: Rocking Curve -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col h-[380px]">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-wave-square text-cyan-400"></i> ロッキングカーブ (ω スキャン)
+                            </h2>
+                            <p class="text-[11px] text-slate-400">
+                                回折面 <span id="rockingHklLabel" class="font-mono text-cyan-300 font-bold">(111)</span> 付近の配向広がり I(Δω)
+                            </p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] text-slate-400 block">ブラッグ角 θ_B</span>
+                            <span id="braggThetaVal" class="text-xs font-mono text-cyan-400 font-bold">19.22°</span>
+                        </div>
+                    </div>
+                    <div class="flex-1 relative w-full h-full min-h-0">
+                        <canvas id="rockingChartCanvas"></canvas>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 3D Lattice & Diffraction Data Table -->
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 flex-1 min-h-[360px]">
+                
+                <!-- 3D Crystal Lattice Visualizer -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col h-[360px] xl:h-auto">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                            <i class="fa-solid fa-cube text-emerald-400"></i> 3D 単位格子 & 回折面 (hkl)
+                        </h2>
+                        <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block" id="atomAColor"></span> <span id="atomALabel">Atom A</span></span>
+                            <span id="atomBWrapper" class="inline-flex items-center gap-1 hidden"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" id="atomBColor"></span> <span id="atomBLabel">Atom B</span></span>
+                        </div>
+                    </div>
+                    <div id="lattice3dContainer" class="flex-1 w-full bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800">
+                        <div class="absolute bottom-2 left-2 z-10 text-[10px] bg-slate-900/80 px-2 py-1 rounded text-slate-400 border border-slate-800 pointer-events-none">
+                            ドラッグ: 回転 | ホイール: 拡大縮小
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reflection Peak Details Table -->
+                <div class="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col h-[360px] xl:h-auto overflow-hidden">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                            <i class="fa-solid fa-table-list text-amber-400"></i> 計算回折ピーク詳細一覧 (10° - 120°)
+                        </h2>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950/50">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead class="bg-slate-800/80 text-slate-300 sticky top-0 z-10">
+                                <tr>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">面指数 (hkl)</th>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">面間隔 d (Å)</th>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">ブラッグ角 θ (°)</th>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">回折角 2θ (°)</th>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">構造因子 |F|²</th>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">多重度 M</th>
+                                    <th class="p-2.5 border-b border-slate-700 font-semibold text-center">相対回折強度 (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reflectionsTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- JavaScript Physics Logic & UI Handlers -->
+    <script>
+        const STRUCTURE_INFO = {
+            'BCC': {
+                name: 'BCC (体心立方構造)',
+                desc: '体心立方格子。消滅則: h+k+l が偶数のときのみ回折ピークが存在します。',
+                atomA: 'Atom (Corner/Center)',
+                atomB: null,
+                colorA: 0x38bdf8,
+                colorB: null
+            },
+            'FCC': {
+                name: 'FCC (面心立方構造)',
+                desc: '面心立方格子。消滅則: 指数(h,k,l)が全て偶数または全て奇数のときのみ回折ピークが出現します。',
+                atomA: 'Atom (Corner/Face)',
+                atomB: null,
+                colorA: 0x38bdf8,
+                colorB: null
+            },
+            'NaCl': {
+                name: 'NaCl (塩化ナトリウム型構造)',
+                desc: '岩塩型構造。全偶数のとき |F|=4|f_Na+f_Cl|、全奇数のとき |F|=4|f_Na-f_Cl| となります。',
+                atomA: 'Na⁺',
+                atomB: 'Cl⁻',
+                colorA: 0x06b6d4,
+                colorB: 0x22c55e
+            },
+            'Diamond': {
+                name: 'Diamond (ダイヤモンド構造)',
+                desc: 'ダイヤモンド型構造。全奇数、または全偶数かつ h+k+l=4n のときのみ回折ピークが現れます。',
+                atomA: 'C (Lattice)',
+                atomB: 'C (Tetrahedral)',
+                colorA: 0x38bdf8,
+                colorB: 0x818cf8
+            },
+            'Zincblende': {
+                name: 'Zincblende (閃亜鉛鉱構造 / ZnS)',
+                desc: '閃亜鉛鉱型立方晶(F-43m)。FCC格子に四面体間隙原子が配置。全奇数で |F|²=16(f_A²+f_B²)、全偶数で|F|²計算。',
+                atomA: 'Zn / カチオン',
+                atomB: 'S / アニオン',
+                colorA: 0x38bdf8,
+                colorB: 0xf59e0b
+            }
+        };
+
+        function getMultiplicityCubic(h, k, l) {
+            const absH = Math.abs(h), absK = Math.abs(k), absL = Math.abs(l);
+            const arr = [absH, absK, absL].sort((a,b) => b-a);
+            const [u, v, w] = arr;
+
+            if (u === 0 && v === 0 && w === 0) return 0;
+            if (v === 0 && w === 0) return 6;           // h00
+            if (u === v && w === 0) return 12;          // hh0
+            if (u === v && v === w) return 8;           // hhh
+            if (w === 0 && u !== v) return 24;          // hk0
+            if (u === v || v === w) return 24;          // hhk
+            return 48;                                  // hkl
+        }
+
+        let state = {
+            structure: 'FCC',
+            zincblendeType: 'Compound',
+            latticeA: 4.05,
+            wavelength: 1.5406,
+            targetHkl: [1, 1, 1],
+            fwhm: 0.15,
+            reflections: []
+        };
+
+        let xrdChart = null;
+        let rockingChart = null;
+        let scene, camera, renderer, controls, latticeGroup, planeMesh;
+
+        window.onload = function() {
+            initCharts();
+            init3D();
+            setupEventListeners();
+            updateStructureUI();
+            calculateAndRender();
+        };
+
+        function initCharts() {
+            const ctxXrd = document.getElementById('xrdChartCanvas').getContext('2d');
+            xrdChart = new Chart(ctxXrd, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: '回折強度 (Intensity)',
+                        data: [],
+                        borderColor: '#0284c7',
+                        backgroundColor: 'rgba(2, 132, 199, 0.25)',
+                        fill: true,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: { display: true, text: '回折角 2θ (度 deg)', color: '#94a3b8', font: { weight: 'bold' } },
+                            min: 10,
+                            max: 120,
+                            ticks: { color: '#94a3b8', stepSize: 10 },
+                            grid: { color: '#1e293b' }
+                        },
+                        y: {
+                            title: { display: true, text: '相対強度 (%)', color: '#94a3b8', font: { weight: 'bold' } },
+                            min: 0,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: '#1e293b' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `強度: ${ctx.raw.y.toFixed(1)}% (2θ: ${ctx.raw.x.toFixed(2)}°)`
+                            }
+                        }
+                    }
+                }
+            });
+
+            const ctxRocking = document.getElementById('rockingChartCanvas').getContext('2d');
+            rockingChart = new Chart(ctxRocking, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'ロッキング強度 I(ω)',
+                        data: [],
+                        borderColor: '#22d3ee',
+                        backgroundColor: 'rgba(34, 211, 238, 0.2)',
+                        fill: true,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: { display: true, text: 'ロッキング角 ω (度 deg)', color: '#94a3b8', font: { weight: 'bold' } },
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: '#1e293b' }
+                        },
+                        y: {
+                            title: { display: true, text: '相対強度 I / I_max', color: '#94a3b8', font: { weight: 'bold' } },
+                            min: 0,
+                            max: 1.1,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: '#1e293b' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        function init3D() {
+            const container = document.getElementById('lattice3dContainer');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020617);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(2.4, 2.0, 3.2);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+            latticeGroup = new THREE.Group();
+            scene.add(latticeGroup);
+
+            window.addEventListener('resize', onWindowResize);
+            animate3D();
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('lattice3dContainer');
+            if (!container) return;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            if (controls) controls.update();
+            if (renderer && scene && camera) renderer.render(scene, camera);
+        }
+
+        function update3DLattice() {
+            while(latticeGroup.children.length > 0){ 
+                latticeGroup.remove(latticeGroup.children[0]); 
+            }
+
+            const info = STRUCTURE_INFO[state.structure];
+
+            const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+            const wireframe = new THREE.WireframeGeometry(boxGeo);
+            const line = new THREE.LineSegments(wireframe, new THREE.LineBasicMaterial({ color: 0x475569 }));
+            latticeGroup.add(line);
+
+            const colorA = info.colorA;
+            const colorB = (state.structure === 'Zincblende' && state.zincblendeType === 'Single') ? info.colorA : (info.colorB || 0xf59e0b);
+
+            const geoA = new THREE.SphereGeometry(0.08, 32, 32);
+            const geoB = new THREE.SphereGeometry(0.065, 32, 32);
+            const matA = new THREE.MeshStandardMaterial({ color: colorA, roughness: 0.3 });
+            const matB = new THREE.MeshStandardMaterial({ color: colorB, roughness: 0.3 });
+
+            const addAtom = (mat, geo, x, y, z) => {
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x - 0.5, y - 0.5, z - 0.5);
+                latticeGroup.add(mesh);
+            };
+
+            const corners = [
+                [0,0,0],[1,0,0],[0,1,0],[0,0,1],
+                [1,1,0],[1,0,1],[0,1,1],[1,1,1]
+            ];
+
+            if (state.structure === 'BCC') {
+                corners.forEach(p => addAtom(matA, geoA, ...p));
+                addAtom(matA, geoA, 0.5, 0.5, 0.5);
+            } else if (state.structure === 'FCC') {
+                corners.forEach(p => addAtom(matA, geoA, ...p));
+                const faces = [
+                    [0.5,0.5,0], [0.5,0.5,1], [0.5,0,0.5],
+                    [0.5,1,0.5], [0,0.5,0.5], [1,0.5,0.5]
+                ];
+                faces.forEach(p => addAtom(matA, geoA, ...p));
+            } else if (state.structure === 'NaCl') {
+                corners.forEach(p => addAtom(matA, geoA, ...p));
+                const faces = [
+                    [0.5,0.5,0], [0.5,0.5,1], [0.5,0,0.5],
+                    [0.5,1,0.5], [0,0.5,0.5], [1,0.5,0.5]
+                ];
+                faces.forEach(p => addAtom(matA, geoA, ...p));
+
+                const edges = [
+                    [0.5,0,0],[0.5,1,0],[0.5,0,1],[0.5,1,1],
+                    [0,0.5,0],[1,0.5,0],[0,0.5,1],[1,0.5,1],
+                    [0,0,0.5],[1,0,0.5],[0,1,0.5],[1,1,0.5],
+                    [0.5,0.5,0.5]
+                ];
+                edges.forEach(p => addAtom(matB, geoB, ...p));
+            } else if (state.structure === 'Diamond' || state.structure === 'Zincblende') {
+                corners.forEach(p => addAtom(matA, geoA, ...p));
+                const faces = [
+                    [0.5,0.5,0], [0.5,0.5,1], [0.5,0,0.5],
+                    [0.5,1,0.5], [0,0.5,0.5], [1,0.5,0.5]
+                ];
+                faces.forEach(p => addAtom(matA, geoA, ...p));
+
+                const basisMat = (state.structure === 'Zincblende' && state.zincblendeType === 'Compound') ? matB : matA;
+                const basisGeo = (state.structure === 'Zincblende' && state.zincblendeType === 'Compound') ? geoB : geoA;
+
+                const basis = [
+                    [0.25, 0.25, 0.25], [0.75, 0.75, 0.25],
+                    [0.75, 0.25, 0.75], [0.25, 0.75, 0.75]
+                ];
+                basis.forEach(p => addAtom(basisMat, basisGeo, ...p));
+            }
+
+            const [h, k, l] = state.targetHkl;
+            if (h !== 0 || k !== 0 || l !== 0) {
+                const planeGeo = new THREE.PlaneGeometry(1.2, 1.2);
+                const planeMat = new THREE.MeshBasicMaterial({
+                    color: 0x22d3ee,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.4
+                });
+                planeMesh = new THREE.Mesh(planeGeo, planeMat);
+                
+                const normal = new THREE.Vector3(h, k, l).normalize();
+                planeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+                latticeGroup.add(planeMesh);
+            }
+        }
+
+        function updateStructureUI() {
+            const info = STRUCTURE_INFO[state.structure];
+            document.getElementById('structDescription').textContent = info.desc;
+            
+            document.getElementById('atomALabel').textContent = info.atomA;
+            document.getElementById('atomAColor').style.backgroundColor = '#' + info.colorA.toString(16).padStart(6, '0');
+
+            const atomBWrapper = document.getElementById('atomBWrapper');
+            const zincblendeTypeWrapper = document.getElementById('zincblendeTypeWrapper');
+
+            if (state.structure === 'Zincblende') {
+                zincblendeTypeWrapper.classList.remove('hidden');
+            } else {
+                zincblendeTypeWrapper.classList.add('hidden');
+            }
+
+            if (info.atomB && !(state.structure === 'Zincblende' && state.zincblendeType === 'Single')) {
+                atomBWrapper.classList.remove('hidden');
+                document.getElementById('atomBLabel').textContent = info.atomB;
+                document.getElementById('atomBColor').style.backgroundColor = '#' + (info.colorB || 0xf59e0b).toString(16).padStart(6, '0');
+            } else {
+                atomBWrapper.classList.add('hidden');
+            }
+        }
+
+        function setupEventListeners() {
+            document.getElementById('structSelect').addEventListener('change', (e) => {
+                state.structure = e.target.value;
+                updateStructureUI();
+                calculateAndRender();
+            });
+
+            document.getElementById('zincblendeTypeSelect').addEventListener('change', (e) => {
+                state.zincblendeType = e.target.value;
+                updateStructureUI();
+                calculateAndRender();
+            });
+
+            const latticeAInput = document.getElementById('latticeA');
+            latticeAInput.addEventListener('input', (e) => {
+                state.latticeA = parseFloat(e.target.value);
+                document.getElementById('latticeAVal').textContent = state.latticeA.toFixed(2) + " Å";
+                calculateAndRender();
+            });
+
+            document.getElementById('wavelengthSelect').addEventListener('change', (e) => {
+                state.wavelength = parseFloat(e.target.value);
+                calculateAndRender();
+            });
+
+            document.getElementById('hklSelect').addEventListener('change', (e) => {
+                state.targetHkl = e.target.value.split(',').map(Number);
+                updateRockingCurveChart();
+                update3DLattice();
+                updateTableHighlight();
+            });
+
+            const fwhmInput = document.getElementById('fwhmSlider');
+            fwhmInput.addEventListener('input', (e) => {
+                state.fwhm = parseFloat(e.target.value);
+                document.getElementById('fwhmVal').textContent = `${state.fwhm.toFixed(2)}°`;
+                updateXrdChart();
+                updateRockingCurveChart();
+            });
+
+            document.getElementById('resetParamsBtn').addEventListener('click', () => {
+                state.latticeA = 4.05;
+                state.fwhm = 0.15;
+                state.structure = 'FCC';
+                state.zincblendeType = 'Compound';
+                
+                document.getElementById('latticeA').value = 4.05;
+                document.getElementById('latticeAVal').textContent = "4.05 Å";
+                document.getElementById('fwhmSlider').value = 0.15;
+                document.getElementById('fwhmVal').textContent = "0.15°";
+                document.getElementById('structSelect').value = 'FCC';
+                document.getElementById('zincblendeTypeSelect').value = 'Compound';
+                
+                updateStructureUI();
+                calculateAndRender();
+            });
+        }
+
+        function calculateAndRender() {
+            const a = state.latticeA;
+            const lambda = state.wavelength;
+
+            const maxSinTheta = Math.sin(60 * Math.PI / 180); // 2theta = 120deg -> theta = 60deg
+            const minD = lambda / (2 * maxSinTheta);
+            const maxH = Math.ceil(a / minD);
+
+            const hklSet = new Set();
+            const reflections = [];
+
+            const f1 = 29; // Cu/Zn-like scattering factor
+            const f2 = (state.structure === 'Zincblende' && state.zincblendeType === 'Single') ? 29 : 17; // Cl/S-like
+
+            for (let h = 0; h <= maxH; h++) {
+                for (let k = 0; k <= maxH; k++) {
+                    for (let l = 0; l <= maxH; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+
+                        const sorted = [h, k, l].sort((x,y) => y-x);
+                        const key = `${sorted[0]},${sorted[1]},${sorted[2]}`;
+                        if (hklSet.has(key)) continue;
+
+                        const sumSq = sorted[0]*sorted[0] + sorted[1]*sorted[1] + sorted[2]*sorted[2];
+                        const d = a / Math.sqrt(sumSq);
+
+                        const sinTheta = lambda / (2 * d);
+                        if (sinTheta > maxSinTheta) continue;
+
+                        const thetaRad = Math.asin(sinTheta);
+                        const thetaDeg = thetaRad * (180 / Math.PI);
+                        const twoThetaDeg = thetaDeg * 2;
+
+                        if (twoThetaDeg < 10 || twoThetaDeg > 120) continue;
+
+                        let F2 = 0;
+                        const isAllOdd = (sorted[0] % 2 !== 0) && (sorted[1] % 2 !== 0) && (sorted[2] % 2 !== 0);
+                        const isAllEven = (sorted[0] % 2 === 0) && (sorted[1] % 2 === 0) && (sorted[2] % 2 === 0);
+                        const sumHkl = sorted[0] + sorted[1] + sorted[2];
+
+                        if (state.structure === 'BCC') {
+                            if (sumHkl % 2 === 0) F2 = 4 * f1 * f1;
+                        } else if (state.structure === 'FCC') {
+                            if (isAllOdd || isAllEven) F2 = 16 * f1 * f1;
+                        } else if (state.structure === 'NaCl') {
+                            if (isAllEven) F2 = 16 * (f1 + f2) * (f1 + f2);
+                            else if (isAllOdd) F2 = 16 * (f1 - f2) * (f1 - f2);
+                        } else if (state.structure === 'Diamond') {
+                            if (isAllOdd) F2 = 32 * f1 * f1;
+                            else if (isAllEven && sumHkl % 4 === 0) F2 = 64 * f1 * f1;
+                        } else if (state.structure === 'Zincblende') {
+                            if (isAllOdd) {
+                                F2 = 16 * (f1 * f1 + f2 * f2);
+                            } else if (isAllEven) {
+                                if (sumHkl % 4 === 0) {
+                                    F2 = 16 * (f1 + f2) * (f1 + f2);
+                                } else {
+                                    F2 = 16 * (f1 - f2) * (f1 - f2);
+                                }
+                            }
+                        }
+
+                        if (F2 < 1e-4) continue;
+
+                        hklSet.add(key);
+
+                        const mult = getMultiplicityCubic(sorted[0], sorted[1], sorted[2]);
+                        const cos2Theta = Math.cos(2 * thetaRad);
+                        const lp = (1 + cos2Theta * cos2Theta) / (Math.sin(thetaRad) * Math.sin(thetaRad) * Math.cos(thetaRad));
+
+                        const rawIntensity = F2 * mult * lp;
+
+                        reflections.push({
+                            hkl: sorted,
+                            hklStr: `(${sorted[0]}${sorted[1]}${sorted[2]})`,
+                            d: d,
+                            thetaDeg: thetaDeg,
+                            twoThetaDeg: twoThetaDeg,
+                            F2: F2,
+                            mult: mult,
+                            rawIntensity: rawIntensity
+                        });
+                    }
+                }
+            }
+
+            const maxI = Math.max(...reflections.map(r => r.rawIntensity), 1);
+            reflections.forEach(r => {
+                r.relativeI = (r.rawIntensity / maxI) * 100;
+            });
+
+            reflections.sort((a, b) => a.twoThetaDeg - b.twoThetaDeg);
+            state.reflections = reflections;
+
+            updateHklDropdown();
+            updateTable();
+            updateXrdChart();
+            updateRockingCurveChart();
+            update3DLattice();
+        }
+
+        function updateHklDropdown() {
+            const select = document.getElementById('hklSelect');
+            const currentVal = select.value;
+            select.innerHTML = '';
+
+            state.reflections.forEach(r => {
+                const valStr = r.hkl.join(',');
+                select.add(new Option(`${r.hklStr} (2θ = ${r.twoThetaDeg.toFixed(2)}°)`, valStr));
+            });
+
+            if (state.reflections.some(r => r.hkl.join(',') === currentVal)) {
+                select.value = currentVal;
+            } else if (state.reflections.length > 0) {
+                select.value = state.reflections[0].hkl.join(',');
+                state.targetHkl = state.reflections[0].hkl;
+            }
+        }
+
+        function updateXrdChart() {
+            const steps = 700;
+            const min2T = 10, max2T = 120;
+            const stepSize = (max2T - min2T) / steps;
+            const fwhm = state.fwhm;
+            const c = 4 * Math.LN2;
+
+            const spectrum = [];
+
+            for (let i = 0; i <= steps; i++) {
+                const x2t = min2T + i * stepSize;
+                let totalIntensity = 0;
+
+                state.reflections.forEach(r => {
+                    const diff = x2t - r.twoThetaDeg;
+                    if (Math.abs(diff) < fwhm * 3.5) {
+                        const peak = r.relativeI * Math.exp(-c * (diff * diff) / (fwhm * fwhm));
+                        totalIntensity += peak;
+                    }
+                });
+
+                spectrum.push({ x: x2t, y: totalIntensity });
+            }
+
+            xrdChart.data.datasets[0].data = spectrum;
+            xrdChart.update('none');
+        }
+
+        function updateRockingCurveChart() {
+            const targetRef = state.reflections.find(r => r.hkl.join(',') === state.targetHkl.join(','));
+
+            if (!targetRef) {
+                rockingChart.data.datasets[0].data = [];
+                rockingChart.update('none');
+                return;
+            }
+
+            const theta = targetRef.thetaDeg;
+            const fwhm = state.fwhm;
+
+            document.getElementById('rockingHklLabel').textContent = targetRef.hklStr;
+            document.getElementById('braggThetaVal').textContent = `${theta.toFixed(2)}°`;
+
+            const span = Math.max(fwhm * 3.5, 0.3);
+            const numPoints = 100;
+            const step = (span * 2) / numPoints;
+            const curveData = [];
+            const c = 4 * Math.LN2;
+
+            for (let i = 0; i <= numPoints; i++) {
+                const omega = (theta - span) + i * step;
+                const diff = omega - theta;
+                const intensity = Math.exp(-c * (diff * diff) / (fwhm * fwhm));
+                curveData.push({ x: omega, y: intensity });
+            }
+
+            rockingChart.options.scales.x.min = theta - span;
+            rockingChart.options.scales.x.max = theta + span;
+            rockingChart.data.datasets[0].data = curveData;
+            rockingChart.update('none');
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('reflectionsTableBody');
+            tbody.innerHTML = '';
+
+            state.reflections.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.id = `row-${r.hkl.join('-')}`;
+                tr.className = 'hover:bg-slate-800/60 transition-colors cursor-pointer';
+
+                const isSelected = r.hkl.join(',') === state.targetHkl.join(',');
+                if (isSelected) {
+                    tr.classList.add('bg-brand-950/60', 'text-brand-300', 'font-bold');
+                }
+
+                tr.innerHTML = `
+                    <td class="p-2.5 text-center font-mono">${r.hklStr}</td>
+                    <td class="p-2.5 text-center font-mono">${r.d.toFixed(4)}</td>
+                    <td class="p-2.5 text-center font-mono">${r.thetaDeg.toFixed(2)}°</td>
+                    <td class="p-2.5 text-center font-mono text-cyan-400">${r.twoThetaDeg.toFixed(2)}°</td>
+                    <td class="p-2.5 text-center font-mono">${r.F2.toFixed(1)}</td>
+                    <td class="p-2.5 text-center font-mono">${r.mult}</td>
+                    <td class="p-2.5 text-center font-mono text-brand-400">${r.relativeI.toFixed(1)}%</td>
+                `;
+
+                tr.addEventListener('click', () => {
+                    document.getElementById('hklSelect').value = r.hkl.join(',');
+                    state.targetHkl = r.hkl;
+                    updateTableHighlight();
+                    updateRockingCurveChart();
+                    update3DLattice();
+                });
+
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('xrdPeakCount').textContent = `ピーク数: ${state.reflections.length}`;
+        }
+
+        function updateTableHighlight() {
+            const currentStr = state.targetHkl.join('-');
+            document.querySelectorAll('#reflectionsTableBody tr').forEach(tr => {
+                if (tr.id === `row-${currentStr}`) {
+                    tr.classList.add('bg-brand-950/60', 'text-brand-300', 'font-bold');
+                } else {
+                    tr.classList.remove('bg-brand-950/60', 'text-brand-300', 'font-bold');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
